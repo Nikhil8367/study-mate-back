@@ -1,0 +1,11 @@
+Flask
+flask-cors
+pymongo
+python-dotenv
+PyMuPDF
+google-generativeai
+werkzeug
+streamlit
+requests
+gunicorn
+wheel

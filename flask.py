@@ -189,6 +189,10 @@ def login():
         return jsonify({"message": "Login successful."}), 200
     return jsonify({"error": "Invalid credentials"}), 401
 
+@app.route("/")
+def home():
+    return "✅ StudyMate Flask Backend is running!"
+
 # === Run App ===
 if __name__ == "__main__":
     app.run(debug=True)

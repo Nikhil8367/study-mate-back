@@ -204,40 +204,35 @@ from bson import ObjectId
 
 from bson.errors import InvalidId
 
-@app.route("/history/<source>/<chat_id>", methods=["DELETE"])
-def delete_history(source, chat_id):
+from bson import ObjectId
+
+from bson.errors import InvalidId
+
+@app.route("/history/<username>/<chat_id>", methods=["DELETE"])
+def delete_history(username, chat_id):
     try:
-        if source == "pdf":
-            collection = db["chats"]
-        elif source == "gemini":
-            collection = db["gemini_chats"]
-        else:
-            return jsonify({"error": "Invalid source. Use 'pdf' or 'gemini'."}), 400
-
-        # Try ObjectId deletion
+        # Try to convert chat_id into a valid ObjectId
         try:
-            valid_id = ObjectId(chat_id)  # will raise if invalid
-            result = collection.delete_one({"_id": valid_id})
-            if result.deleted_count == 1:
-                return jsonify({"message": f"{source.capitalize()} chat deleted successfully"}), 200
+            chat_obj_id = ObjectId(chat_id)
         except InvalidId:
-            pass  # Not a valid ObjectId, fall back
+            return jsonify({"success": False, "error": "Invalid chat_id format"}), 400
 
-        # Try index deletion
-        if chat_id.isdigit():
-            chat_index = int(chat_id)
-            chats = list(collection.find().sort("_id", 1))
-            if 0 <= chat_index < len(chats):
-                target_id = chats[chat_index]["_id"]
-                collection.delete_one({"_id": target_id})
-                return jsonify({"message": f"{source.capitalize()} chat deleted successfully"}), 200
-            else:
-                return jsonify({"error": "Invalid chat index"}), 404
+        # Try deleting from PDF chats first
+        result = db["chats"].delete_one({"_id": chat_obj_id, "username": username})
+        if result.deleted_count == 1:
+            return jsonify({"success": True, "message": "PDF chat deleted successfully"})
 
-        return jsonify({"error": "Chat not found"}), 404
+        # If not found in PDF, try Gemini chats
+        result = db["gemini_chats"].delete_one({"_id": chat_obj_id, "username": username})
+        if result.deleted_count == 1:
+            return jsonify({"success": True, "message": "Gemini chat deleted successfully"})
+
+        # Nothing deleted
+        return jsonify({"success": False, "message": "No matching chat found"}), 404
 
     except Exception as e:
-        return jsonify({"error": f"Delete Error: {str(e)}"}), 500
+        print("❌ Delete error:", str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 
@@ -249,5 +244,4 @@ def home():
 # === Run App ===
 if __name__ == "__main__":
     app.run(debug=True)
-
 

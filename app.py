@@ -192,31 +192,35 @@ def login():
 from bson import ObjectId
 
 # === Delete History Route ===
-@app.route("/history/delete", methods=["POST"])
-def delete_history():
-    data = request.get_json()
-    username = data.get("username", "").strip()
-    chat_id = data.get("chat_id", "").strip()
-    source = data.get("source", "").strip()  # "pdf" or "gemini"
+from bson.objectid import ObjectId
 
-    if not username or not chat_id or not source:
-        return jsonify({"error": "username, chat_id, and source are required"}), 400
-
+# === Delete History Route ===
+@app.route("/history/<source>/<chat_id>", methods=["DELETE"])
+def delete_history(source, chat_id):
+    """
+    Delete a chat by ID from either pdf chats or gemini chats.
+    :param source: 'pdf' or 'gemini'
+    :param chat_id: MongoDB document _id as string
+    """
     try:
-        collection = db["chats"] if source == "pdf" else db["gemini_chats"]
+        collection = None
+        if source == "pdf":
+            collection = db["chats"]
+        elif source == "gemini":
+            collection = db["gemini_chats"]
+        else:
+            return jsonify({"error": "Invalid source. Use 'pdf' or 'gemini'."}), 400
 
-        result = collection.delete_one({
-            "_id": ObjectId(chat_id),
-            "username": username
-        })
+        result = collection.delete_one({"_id": ObjectId(chat_id)})
 
-        if result.deleted_count == 0:
-            return jsonify({"error": "History item not found or not owned by user"}), 404
-
-        return jsonify({"message": "History deleted successfully"}), 200
+        if result.deleted_count == 1:
+            return jsonify({"message": f"{source.capitalize()} chat deleted successfully"}), 200
+        else:
+            return jsonify({"error": "Chat not found"}), 404
 
     except Exception as e:
         return jsonify({"error": f"Delete Error: {str(e)}"}), 500
+
 
 
 @app.route("/")
@@ -226,4 +230,5 @@ def home():
 # === Run App ===
 if __name__ == "__main__":
     app.run(debug=True)
+
 

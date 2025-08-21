@@ -6,7 +6,10 @@ from pymongo import MongoClient
 import google.generativeai as genai
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
+from bson.objectid import ObjectId
+import time
 
+# === Load Environment Variables ===
 load_dotenv()
 
 app = Flask(__name__)
@@ -40,6 +43,7 @@ def upload_pdf():
     if not username:
         return jsonify({"error": "Username required"}), 400
 
+    # Clear previous paragraphs for this user
     paragraphs_col.delete_many({"username": username})
 
     if "files" not in request.files:
@@ -54,24 +58,25 @@ def upload_pdf():
                 "text": para
             })
 
-    return jsonify({"message": "PDF uploaded and paragraphs stored successfully."})
+    return jsonify({"message": "PDF uploaded and paragraphs stored successfully."}), 200
 
+# === Fetch Chat History (both PDF + Gemini) ===
 @app.route("/history/<username>", methods=["GET"])
 def get_history(username):
     try:
         # Fetch PDF-based chat history
-        pdf_chats = list(db["chats"].find({"username": username}, {"_id": 0}))
+        pdf_chats = list(db["chats"].find({"username": username}))
+        for chat in pdf_chats:
+            chat["_id"] = str(chat["_id"])
+            chat["source"] = "pdf"
 
         # Fetch Gemini-based chat history
-        gemini_chats = list(db["gemini_chats"].find({"username": username}, {"_id": 0}))
-
-        # Tag chats for frontend distinction
-        for chat in pdf_chats:
-            chat["source"] = "pdf"
+        gemini_chats = list(db["gemini_chats"].find({"username": username}))
         for chat in gemini_chats:
+            chat["_id"] = str(chat["_id"])
             chat["source"] = "gemini"
 
-        # Combine and sort by recent (if needed)
+        # Combine & sort by timestamp if present
         all_chats = pdf_chats + gemini_chats
         all_chats = sorted(all_chats, key=lambda x: x.get("timestamp", 0), reverse=True)
 
@@ -80,8 +85,7 @@ def get_history(username):
     except Exception as e:
         return jsonify({"error": f"History Fetch Error: {str(e)}"}), 500
 
-
-# === Gemini Chat Route (saved in separate history) ===
+# === Gemini Chat Route (saved separately) ===
 @app.route("/gemini_chat", methods=["POST"])
 def gemini_chat():
     data = request.get_json()
@@ -95,11 +99,12 @@ def gemini_chat():
         response = model.generate_content(message)
         reply = response.text
 
-        # Save to gemini_chats history
+        # Save chat
         db["gemini_chats"].insert_one({
             "username": username,
             "question": message,
-            "answer": reply
+            "answer": reply,
+            "timestamp": time.time()
         })
 
         return jsonify({"response": reply}), 200
@@ -107,8 +112,7 @@ def gemini_chat():
     except Exception as e:
         return jsonify({"error": f"Gemini API Error: {str(e)}"}), 500
 
-
-# === Route: Ask a question (chat saved per user) ===
+# === Ask Question from Uploaded PDF ===
 @app.route("/ask", methods=["POST"])
 def ask_question():
     data = request.get_json()
@@ -124,6 +128,7 @@ def ask_question():
 
     all_paragraphs = [doc["text"] for doc in user_paras]
 
+    # Simple keyword scoring
     keywords = question.lower().split()
     scored = []
     for para in all_paragraphs:
@@ -135,7 +140,12 @@ def ask_question():
     top_paragraphs = [p[0] for p in scored[:3]] if scored else all_paragraphs[:3]
 
     context = "\n\n".join(top_paragraphs)
-    prompt = f"""Answer the question using only the following context. Do not use external knowledge.\n\nContext:\n{context}\n\nQuestion: {question}"""
+    prompt = f"""Answer the question using only the following context. Do not use external knowledge.
+
+Context:
+{context}
+
+Question: {question}"""
 
     try:
         response = model.generate_content(prompt)
@@ -148,16 +158,16 @@ def ask_question():
         "username": username,
         "question": question,
         "answer": answer,
-        "matched_paragraphs": top_paragraphs
+        "matched_paragraphs": top_paragraphs,
+        "timestamp": time.time()
     })
 
     return jsonify({
         "answer": answer,
         "matched_paragraphs": top_paragraphs
-    })
+    }), 200
 
-
-# === Signup Route ===
+# === Signup ===
 @app.route("/signup", methods=["POST"])
 def signup():
     data = request.get_json()
@@ -177,7 +187,7 @@ def signup():
 
     return jsonify({"message": "User registered successfully."}), 200
 
-# === Login Route ===
+# === Login ===
 @app.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
@@ -189,21 +199,13 @@ def login():
         return jsonify({"message": "Login successful."}), 200
     return jsonify({"error": "Invalid credentials"}), 401
 
-from bson import ObjectId
-
-# === Delete History Route ===
-from bson.objectid import ObjectId
-
-# === Delete History Route ===
+# === Delete Chat by ObjectId ===
 @app.route("/history/<source>/<chat_id>", methods=["DELETE"])
 def delete_history(source, chat_id):
     """
     Delete a chat by ID from either pdf chats or gemini chats.
-    :param source: 'pdf' or 'gemini'
-    :param chat_id: MongoDB document _id as string
     """
     try:
-        collection = None
         if source == "pdf":
             collection = db["chats"]
         elif source == "gemini":
@@ -221,8 +223,7 @@ def delete_history(source, chat_id):
     except Exception as e:
         return jsonify({"error": f"Delete Error: {str(e)}"}), 500
 
-
-
+# === Root Route ===
 @app.route("/")
 def home():
     return "✅ StudyMate Flask Backend is running!"
@@ -230,5 +231,3 @@ def home():
 # === Run App ===
 if __name__ == "__main__":
     app.run(debug=True)
-
-

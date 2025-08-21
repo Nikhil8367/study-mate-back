@@ -202,11 +202,10 @@ def login():
 # === Delete Chat by ObjectId ===
 from bson import ObjectId
 
+from bson.errors import InvalidId
+
 @app.route("/history/<source>/<chat_id>", methods=["DELETE"])
 def delete_history(source, chat_id):
-    """
-    Delete a chat by ObjectId or index from either pdf chats or gemini chats.
-    """
     try:
         if source == "pdf":
             collection = db["chats"]
@@ -215,18 +214,19 @@ def delete_history(source, chat_id):
         else:
             return jsonify({"error": "Invalid source. Use 'pdf' or 'gemini'."}), 400
 
-        # Try ObjectId deletion first
+        # Try ObjectId deletion
         try:
-            result = collection.delete_one({"_id": ObjectId(chat_id)})
+            valid_id = ObjectId(chat_id)  # will raise if invalid
+            result = collection.delete_one({"_id": valid_id})
             if result.deleted_count == 1:
                 return jsonify({"message": f"{source.capitalize()} chat deleted successfully"}), 200
-        except:
-            pass  # Not a valid ObjectId, fall back to index deletion
+        except InvalidId:
+            pass  # Not a valid ObjectId, fall back
 
-        # If chat_id is an index number
+        # Try index deletion
         if chat_id.isdigit():
             chat_index = int(chat_id)
-            chats = list(collection.find().sort("_id", 1))  # ordered by insertion
+            chats = list(collection.find().sort("_id", 1))
             if 0 <= chat_index < len(chats):
                 target_id = chats[chat_index]["_id"]
                 collection.delete_one({"_id": target_id})
@@ -240,6 +240,7 @@ def delete_history(source, chat_id):
         return jsonify({"error": f"Delete Error: {str(e)}"}), 500
 
 
+
 # === Root Route ===
 @app.route("/")
 def home():
@@ -248,4 +249,5 @@ def home():
 # === Run App ===
 if __name__ == "__main__":
     app.run(debug=True)
+
 

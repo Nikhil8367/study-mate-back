@@ -189,6 +189,36 @@ def login():
         return jsonify({"message": "Login successful."}), 200
     return jsonify({"error": "Invalid credentials"}), 401
 
+from bson import ObjectId
+
+# === Delete History Route ===
+@app.route("/history/delete", methods=["POST"])
+def delete_history():
+    data = request.get_json()
+    username = data.get("username", "").strip()
+    chat_id = data.get("chat_id", "").strip()
+    source = data.get("source", "").strip()  # "pdf" or "gemini"
+
+    if not username or not chat_id or not source:
+        return jsonify({"error": "username, chat_id, and source are required"}), 400
+
+    try:
+        collection = db["chats"] if source == "pdf" else db["gemini_chats"]
+
+        result = collection.delete_one({
+            "_id": ObjectId(chat_id),
+            "username": username
+        })
+
+        if result.deleted_count == 0:
+            return jsonify({"error": "History item not found or not owned by user"}), 404
+
+        return jsonify({"message": "History deleted successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Delete Error: {str(e)}"}), 500
+
+
 @app.route("/")
 def home():
     return "✅ StudyMate Flask Backend is running!"
@@ -196,3 +226,4 @@ def home():
 # === Run App ===
 if __name__ == "__main__":
     app.run(debug=True)
+
